@@ -37,6 +37,10 @@
 
 #include "alhelpers.h"
 
+#include "raylib.h"
+#include "raymath.h"
+#include "rcamera.h"
+
 // #include "win_main_utf8.h"
 
 
@@ -50,7 +54,7 @@ enum FormatType {
 /* LoadBuffer loads the named audio file into an OpenAL buffer object, and
  * returns the new buffer ID.
  */
-static ALuint LoadSound(const char *filename)
+static ALuint AlLoadSound(const char *filename)
 {
 	enum FormatType sample_format = Int16;
 	ALint byteblockalign = 0;
@@ -281,71 +285,123 @@ static ALuint LoadSound(const char *filename)
 	return buffer;
 }
 
-
-int main(int argc, char **argv)
+void LoadAndPlaySound(const char *filename, Vector3 position)
 {
 	ALuint source, buffer;
-	ALfloat offset;
-	ALenum state;
-
-	/* Print out usage if no arguments were specified */
-	// if(argc < 2)
-	// {
-	// 	fprintf(stderr, "Usage: %s [-device <name>] <filename>\n", argv[0]);
-	// 	return 1;
-	// }
-
-	/* Initialize OpenAL. */
-	argv++; argc--;
-	if(InitAL(&argv, &argc) != 0)
-		return 1;
-
 	/* Load the sound into a buffer. */
-	// buffer = LoadSound(argv[0]);
-	buffer = LoadSound("assets/01 Lich is Unbreakable (Expedition 1).ogg");
-	// buffer = LoadSound("assets/tone.wav");
+	buffer = AlLoadSound(filename);
 	if(!buffer)
 	{
 		CloseAL();
-		return 1;
+		return;
 	}
 
 	/* Create the source to play the sound with. */
 	source = 0;
 	alGenSources(1, &source);
+	ALfloat sourcePos[] = {position.x, position.y, position.z};
+	alSourcefv(source, AL_POSITION, sourcePos);
+	alSourcei(source, AL_LOOPING, AL_TRUE);
 	alSourcei(source, AL_BUFFER, (ALint)buffer);
 	assert(alGetError()==AL_NO_ERROR && "Failed to setup sound source");
 
+	alSourcePlay(source);
+}
+
+
+int main(int argc, char **argv)
+{
+	const int screenWidth = 800;
+	const int screenHeight = 450;
+
+	InitWindow(screenWidth, screenHeight, "raylib [core] example - 3d camera first person");
+
+	// Define the camera to look into our 3d world (position, target, up vector)
+	Camera camera = { 0 };
+	camera.position = (Vector3){ 0.0f, 2.0f, 0.0f };    // Camera position
+	camera.target = (Vector3){ 1.0f, 0.0f, 0.0f };      // Camera looking at point
+	camera.up = (Vector3){ 0.0f, 1.0f, 0.0f };          // Camera up vector (rotation towards target)
+	camera.fovy = 60.0f;                                // Camera field-of-view Y
+	camera.projection = CAMERA_PERSPECTIVE;             // Camera projection type
+
+	int cameraMode = CAMERA_FIRST_PERSON;
+
+	DisableCursor();
+
+	SetTargetFPS(60);
+
+	/* Initialize OpenAL. */
+	argv++; argc--;
+	if(InitAL(&argv, &argc) != 0)
+	{
+		return 1;
+	}
+	alDopplerFactor(10.0f);
+
+	LoadAndPlaySound(
+		"assets/01 Lich is Unbreakable (Expedition 1).ogg",
+		(Vector3){10.0, 1.0, 0.0}
+	);
+	LoadAndPlaySound(
+		"assets/30 Golden Win (piano).ogg",
+		(Vector3){0.0, 1.0, 0.0}
+	);
+
 	/* create lstener */
-	ALfloat listenerPos[]={-10.0,0.0,0.0};
+	ALfloat listenerPos[] = {0.0,0.0,0.0};
+	ALfloat listenerOri[]={0.0,0.0,-1.0, 0.0,1.0,0.0};
 
 	// Position ...
 	alListenerfv(AL_POSITION,listenerPos);
 	ALenum error;
 	if ((error = alGetError()) != AL_NO_ERROR)
 	{
-		// DisplayALError("alListenerfv POSITION : ", error);
+		printf("alListenerfv POSITION : %i\n", error);
+		return 1;
+	}
+	// Orientation ...
+	alListenerfv(AL_ORIENTATION,listenerOri);
+	if ((error = alGetError()) != AL_NO_ERROR)
+	{
+		printf("alListenerfv ORIENTATION : %i\n", error);
 		return 1;
 	}
 
-	/* Play the sound until it finishes. */
-	alSourcePlay(source);
-	do {
-		al_nssleep(10000000);
-		alGetSourcei(source, AL_SOURCE_STATE, &state);
+	while (!WindowShouldClose())
+	{
+		Vector3 oldCameraPos = camera.position;
+		UpdateCamera(&camera, cameraMode);
+		Vector3 cameraVelocity = Vector3Subtract(camera.position, oldCameraPos);
 
-		/* Get the source offset. */
-		alGetSourcef(source, AL_SEC_OFFSET, &offset);
-		printf("\rOffset: %f  ", offset);
-		fflush(stdout);
-	} while(alGetError() == AL_NO_ERROR && state == AL_PLAYING);
-	printf("\n");
+		ALfloat listenerPos[] = {camera.position.x, camera.position.y, camera.position.z};
+		Vector3 lookAt = Vector3Subtract(camera.target, camera.position);
+		ALfloat listenerVel[]={cameraVelocity.x, cameraVelocity.y, cameraVelocity.z};
+		ALfloat listenerOri[]={lookAt.x, lookAt.y, lookAt.z, camera.up.x, camera.up.y, camera.up.z};
+		alListenerfv(AL_POSITION, listenerPos);
+		alListenerfv(AL_VELOCITY, listenerVel);
+		alListenerfv(AL_ORIENTATION,listenerOri);
+		BeginDrawing();
+			ClearBackground(RAYWHITE);
+			BeginMode3D(camera);
+				// Draw ground
+				DrawPlane((Vector3){ 0.0f, 0.0f, 0.0f }, (Vector2){ 32.0f, 32.0f }, LIGHTGRAY);
+				DrawCube((Vector3){0.0, 1.0, 0.0}, 0.5f, 0.5f, 0.5f, PURPLE);
+				DrawCube((Vector3){10.0, 1.0, 0.0}, 0.5f, 0.5f, 0.5f, PURPLE);
+			EndMode3D();
+
+			DrawText("WASD to move,\nMouse for turning.", 50, 50, 20, BLACK);
+			// DrawText(TextFormat("- Position: (%06.3f, %06.3f, %06.3f)", camera.position.x, camera.position.y, camera.position.z), 610, 60, 10, BLACK);
+			// DrawText(TextFormat("- Target: (%06.3f, %06.3f, %06.3f)", lookAt.x, lookAt.y, lookAt.z), 610, 75, 10, BLACK);
+			// DrawText(TextFormat("- Up: (%06.3f, %06.3f, %06.3f)", camera.up.x, camera.up.y, camera.up.z), 610, 90, 10, BLACK);
+		EndDrawing();
+	}
 
 	/* All done. Delete resources, and close down OpenAL. */
-	alDeleteSources(1, &source);
-	alDeleteBuffers(1, &buffer);
+	// alDeleteSources(1, &source);
+	// alDeleteBuffers(1, &buffer);
 
 	CloseAL();
+	CloseWindow();
 
 	return 0;
 }
