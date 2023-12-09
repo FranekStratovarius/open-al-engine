@@ -1,4 +1,7 @@
-add_requires("openal-soft", "libsndfile", "libsndio", "raylib")
+add_requires("openal-soft", "libsndfile", "raylib")
+if(is_plat("linux")) then
+	add_requires("libsndio")
+end
 
 add_rules("mode.debug", "mode.release")
 
@@ -10,7 +13,10 @@ target("openal-soft-test") do
 	add_files("src/*.c")
 	add_includedirs("include", {public = true})
 
-	add_packages("openal-soft", "libsndfile", "libsndio", "raylib")
+	add_packages("openal-soft", "libsndfile", "raylib")
+	if(is_plat("linux")) then
+		add_packages("libsndio")
+	end
 	add_defines("PLATFORM_DESKTOP")
 
 	-- copy assets after build
